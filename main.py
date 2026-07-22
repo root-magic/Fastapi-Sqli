@@ -11,8 +11,9 @@ from typing import Annotated
 from fastapi import Depends
 from http import HTTPStatus
 
-from bd import create_tables, delete_tables, insert_user_data, new_session, User
 
+from bd import create_tables, delete_tables, insert_user_data, new_session, User
+from jwt_gen import cookie
 
 templates = Jinja2Templates(directory="templates")
 
@@ -22,8 +23,7 @@ async def lifespan(app: FastAPI):
    await insert_user_data()
    print("База готова")
    yield
-   await delete_tables()
-   print("База очищена")
+   
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/css", StaticFiles(directory="templates/css"), name="css")
@@ -36,7 +36,7 @@ SessionDepend = Annotated[AsyncSession, Depends(get_session)]
 
 class UserSchema(BaseModel):
     name: str
-    password: str = Field(ge=8, le=12)
+    password: str = Field(min_length=8, max_length=12) 
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -46,7 +46,19 @@ def index(request: Request):
 @app.post('/register', response_class=HTMLResponse)
 async def register(request: Request, session: SessionDepend, name: str=Form(), password: str=Form()):
 
-    new_user = User(name=name, password=password)
+    data = UserSchema(name=name, password=password)
+
+    result = await session.execute(select(User).where(User.name == name))
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        return templates.TemplateResponse(
+            request=request, name="register.html",
+            context={"error": "User is already existing"}
+        )
+
+    new_user = User(name=data.name, password=data.password)
+    
     session.add(new_user)
     await session.commit()
 
@@ -65,9 +77,15 @@ async def login_user(request: Request, session: SessionDepend, name: str=Form(),
     )
     user = result.scalar_one_or_none()
     if user:
-        return RedirectResponse(url="/checkuser", status_code=HTTPStatus.SEE_OTHER)
+        redirect = RedirectResponse(url="/checkuser", status_code=HTTPStatus.SEE_OTHER)
+
+        cookie(redirect, str(user.id))
+
+        return redirect
+
+        
     else: 
-        return {"not": False}
+        return {"error": False}
 
 
 #vulnerable input
