@@ -13,7 +13,7 @@ from http import HTTPStatus
 
 
 from bd import create_tables, delete_tables, insert_user_data, new_session, User
-from jwt_gen import cookie
+from jwt_gen import cookie, security
 
 templates = Jinja2Templates(directory="templates")
 
@@ -89,14 +89,14 @@ async def login_user(request: Request, session: SessionDepend, name: str=Form(),
 
 
 #vulnerable input
-@app.get('/checkuser', response_class=HTMLResponse)
+@app.get('/checkuser', response_class=HTMLResponse, dependencies=[Depends(security.access_token_required)])
 def check(request: Request):
     return templates.TemplateResponse(request=request, name="check.html")
 
 
 
 @app.post("/checkuser")
-async def find_user(input: str=Form()):
+async def find_user(input: str=Form(), dependencies=[Depends(security.access_token_required)]):
     async with new_session() as conn:
         query = text(f"SELECT name FROM users  WHERE '{input}'=name")
         res = await conn.execute(query)
@@ -108,4 +108,4 @@ async def find_user(input: str=Form()):
     
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
